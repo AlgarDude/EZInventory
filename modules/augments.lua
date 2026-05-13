@@ -82,6 +82,50 @@ local function slot_types_intersect(a, b)
     return false
 end
 
+local function numeric_list(values)
+    local result = {}
+    if type(values) ~= "table" then
+        return result
+    end
+
+    for _, value in ipairs(values) do
+        local numeric = tonumber(value)
+        if numeric ~= nil then
+            append_unique(result, numeric)
+        end
+    end
+    return result
+end
+
+local function equipment_slots_intersect(a, b)
+    return slot_types_intersect(a, b)
+end
+
+local function get_parent_equipment_slots(item, sourceLabel)
+    if not item then
+        return {}
+    end
+
+    local equippedSlot = tonumber(item.slotid)
+    if sourceLabel == "Equipped" and equippedSlot ~= nil then
+        return { equippedSlot }
+    end
+
+    return numeric_list(item.slots)
+end
+
+local function augment_fits_parent_equipment_slot(item, targetSlot)
+    local targetEquipmentSlots = numeric_list(targetSlot and targetSlot.parentEquipmentSlots)
+    if #targetEquipmentSlots == 0 then
+        return true
+    end
+
+    -- Candidate item slots are populated by inventory_actor.get_valid_slots via
+    -- MQ2ItemType.cpp WornSlots/WornSlot, which enumerate EquipSlots bits.
+    local candidateEquipmentSlots = numeric_list(item and item.slots)
+    return #candidateEquipmentSlots > 0 and equipment_slots_intersect(targetEquipmentSlots, candidateEquipmentSlots)
+end
+
 local function get_item_aug_type_raw(item)
     if not item then
         return nil
@@ -119,6 +163,10 @@ local function add_loose_augment_candidate(results, item, sourceLabel, locationL
         return
     end
 
+    if targetSlot and not augment_fits_parent_equipment_slot(item, targetSlot) then
+        return
+    end
+
     table.insert(results, {
         augmentName = item.name or "Unknown Augment",
         augmentId = tonumber(item.id) or 0,
@@ -141,6 +189,7 @@ local function add_loose_augment_candidate(results, item, sourceLabel, locationL
         bankslotid = item.bankslotid,
         packslot = item.packslot,
         inventorySlot = item.inventorySlot,
+        equipmentSlots = numeric_list(item.slots),
     })
 end
 
@@ -149,6 +198,7 @@ local function add_augments_from_item(results, item, sourceLabel, locationLabel)
         return
     end
 
+    local parentEquipmentSlots = get_parent_equipment_slots(item, sourceLabel)
     for i = 1, 6 do
         local augName = item["aug" .. i .. "Name"]
         if augName and augName ~= "" then
@@ -168,6 +218,7 @@ local function add_augments_from_item(results, item, sourceLabel, locationLabel)
                 augSlot = i,
                 insertedIn = item.name or "Unknown Item",
                 insertedInLink = item.itemlink or "",
+                parentEquipmentSlots = parentEquipmentSlots,
                 source = sourceLabel,
                 location = locationLabel,
                 focusCount = #(item["aug" .. i .. "FocusEffects"] or {}),
@@ -202,6 +253,7 @@ local function add_empty_slots_from_item(results, item, sourceLabel, locationLab
         return tonumber(value)
     end
 
+    local parentEquipmentSlots = get_parent_equipment_slots(item, sourceLabel)
     for i = 1, 6 do
         local slotVisibleRaw = item["aug" .. i .. "SlotVisible"]
         local slotEmptyRaw = item["aug" .. i .. "SlotEmpty"]
@@ -228,6 +280,7 @@ local function add_empty_slots_from_item(results, item, sourceLabel, locationLab
                     slotTypeRaw = tostring(slotTypeRaw or ""),
                     slotTypeSlots = slotTypeSlots,
                     slotTypeDisplay = (#slotTypeSlots > 0) and table.concat(slotTypeSlots, ", ") or "--",
+                    parentEquipmentSlots = parentEquipmentSlots,
                     source = sourceLabel,
                     location = locationLabel,
                 })
@@ -587,6 +640,7 @@ function M.build_loose_augment_upgrades(insertedAugRow, peerEntries)
         augSlot = insertedAugRow.augSlot,
         slotTypeRaw = insertedAugRow.augmentTypeRaw or "",
         slotTypeDisplay = insertedAugRow.augmentTypeDisplay or "--",
+        parentEquipmentSlots = insertedAugRow.parentEquipmentSlots or {},
     }
 
     local candidates = M.build_loose_augments_for_peers(peerEntries, virtualSlot, {
@@ -597,24 +651,20 @@ function M.build_loose_augment_upgrades(insertedAugRow, peerEntries)
 
     local upgrades = {}
     for _, candidate in ipairs(candidates) do
-        if (tonumber(candidate.augmentId) or 0) == baseId then
-            goto continue
+        if (tonumber(candidate.augmentId) or 0) ~= baseId then
+            local candAc = tonumber(candidate.ac) or 0
+            local candHp = tonumber(candidate.hp) or 0
+            local candMana = tonumber(candidate.mana) or 0
+
+            if candAc > baseAc or candHp > baseHp or candMana > baseMana then
+                candidate._upgradeDiff = {
+                    ac = candAc - baseAc,
+                    hp = candHp - baseHp,
+                    mana = candMana - baseMana,
+                }
+                table.insert(upgrades, candidate)
+            end
         end
-
-        local candAc = tonumber(candidate.ac) or 0
-        local candHp = tonumber(candidate.hp) or 0
-        local candMana = tonumber(candidate.mana) or 0
-
-        if candAc > baseAc or candHp > baseHp or candMana > baseMana then
-            candidate._upgradeDiff = {
-                ac = candAc - baseAc,
-                hp = candHp - baseHp,
-                mana = candMana - baseMana,
-            }
-            table.insert(upgrades, candidate)
-        end
-
-        ::continue::
     end
 
     table.sort(upgrades, function(a, b)
