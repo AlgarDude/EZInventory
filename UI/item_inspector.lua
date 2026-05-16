@@ -28,6 +28,29 @@ local function nonEmpty(value, fallback)
   return tostring(value)
 end
 
+local function renderGradientText(text, pos, colorStart, colorEnd, fontSize)
+    local drawList = ImGui.GetWindowDrawList()
+    if not drawList.CreateCoverageMaskLayer then
+        ImGui.SetCursorScreenPos(pos)
+        ImGui.TextColored(colorStart, text)
+        return
+    end
+    fontSize = fontSize or ImGui.GetFontSize()
+    local textW = ImGui.CalcTextSize(text)
+    local textH = ImGui.GetTextLineHeight()
+    local startU32 = type(colorStart) == 'number' and colorStart or ImGui.GetColorU32(colorStart)
+    local endU32 = type(colorEnd) == 'number' and colorEnd or ImGui.GetColorU32(colorEnd)
+    drawList:CreateCoverageMaskLayer(pos, ImVec2(pos.x + textW, pos.y + textH))
+    drawList:AddText(nil, fontSize, pos, IM_COL32(255, 255, 255, 255), text)
+    drawList:BeginCoverageMaskedDraw()
+    drawList:AddRectFilledMultiColor(
+        pos,
+        ImVec2(pos.x + textW, pos.y + textH),
+        startU32, endU32, endU32, startU32
+    )
+    drawList:EndCoverageMaskedDraw()
+end
+
 local function getSafeDeltaTime(ImGui)
   local dt = 1.0 / 60.0
   local ok, io = pcall(ImGui.GetIO)
@@ -436,7 +459,10 @@ function M.render(inventoryUI, env)
     drawIcon(ImGui, mq, item, 34)
     ImGui.SameLine(0, 10)
     ImGui.BeginGroup()
-    ImGui.TextColored(0.30, 0.66, 0.98, 1.0, nonEmpty(item.name, "Unknown Item"))
+    local itemNameText = nonEmpty(item.name, "Unknown Item")
+    local itemNamePos = ImGui.GetCursorScreenPosVec()
+    renderGradientText(itemNameText, itemNamePos, ImVec4(0.30, 0.66, 0.98, 1.0), ImVec4(1.0, 1.0, 1.0, 1.0))
+    ImGui.Dummy(ImGui.CalcTextSize(itemNameText), ImGui.GetTextLineHeight())
     ImGui.TextColored(0.62, 0.68, 0.76, 1.0, buildFlags(item))
     ImGui.EndGroup()
 

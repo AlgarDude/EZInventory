@@ -91,6 +91,42 @@ local buttonWinFlags = bit32.bor(
     ImGuiWindowFlags.NoFocusOnAppearing, ImGuiWindowFlags.AlwaysAutoResize, ImGuiWindowFlags.NoBackground
 )
 
+---Render text with a left-to-right gradient using coverage mask blending.
+--- Falls back to solid colored text if the coverage mask API is unavailable.
+---@param text string Text to render
+---@param pos ImVec2 Screen position
+---@param colorStart ImVec4|ImU32 Left color
+---@param colorEnd ImVec4|ImU32 Right color
+---@param fontSize number|nil Font size (defaults to ImGui.GetFontSize())
+function M.RenderGradientText(text, pos, colorStart, colorEnd, fontSize)
+    local drawList = ImGui.GetWindowDrawList()
+    if not drawList.CreateCoverageMaskLayer then
+        ImGui.SetCursorScreenPos(pos)
+        if type(colorStart) == 'number' then
+            ImGui.Text(text)
+        else
+            ImGui.TextColored(colorStart, text)
+        end
+        return
+    end
+
+    fontSize = fontSize or ImGui.GetFontSize()
+    local textW = ImGui.CalcTextSize(text)
+    local textH = ImGui.GetTextLineHeight()
+    local startU32 = type(colorStart) == 'number' and colorStart or ImGui.GetColorU32(colorStart)
+    local endU32 = type(colorEnd) == 'number' and colorEnd or ImGui.GetColorU32(colorEnd)
+
+    drawList:CreateCoverageMaskLayer(pos, ImVec2(pos.x + textW, pos.y + textH))
+    drawList:AddText(nil, fontSize, pos, IM_COL32(255, 255, 255, 255), text)
+    drawList:BeginCoverageMaskedDraw()
+    drawList:AddRectFilledMultiColor(
+        pos,
+        ImVec2(pos.x + textW, pos.y + textH),
+        startU32, endU32, endU32, startU32
+    )
+    drawList:EndCoverageMaskedDraw()
+end
+
 function M.InventoryToggleButton(inventoryUI, setMainWindowVisible)
     ImGui.PushStyleColor(ImGuiCol.WindowBg, ImVec4(0, 0, 0, 0))
     ImGui.Begin("EZInvToggle", nil, buttonWinFlags)
