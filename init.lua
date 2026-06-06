@@ -1,6 +1,6 @@
 -- EZInventory Refactored Entry Point
 -- developed by psatty82
--- updated 03/08/2026 (Refactored)
+-- updated 05/21/2026 (Refactored)
 
 local mq    = require("mq")
 local ImGui = require("ImGui")

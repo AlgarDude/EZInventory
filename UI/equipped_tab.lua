@@ -319,8 +319,10 @@ function M.renderContent(inventoryUI, env)
           local visualColumnsActive = false
           local visualOk, visualErr = pcall(function()
           local armorTypes = { "All", "Plate", "Chain", "Cloth", "Leather", }
+          local classNames = { "All", "WAR", "CLR", "PAL", "RNG", "SHD", "DRU", "MNK", "BRD", "ROG", "SHM", "NEC", "WIZ", "MAG", "ENC", "BST", "BER" }
           local statFilterModes = { "All", "Less Than", "Greater Than" }
           inventoryUI.armorTypeFilter = inventoryUI.armorTypeFilter or "All"
+          inventoryUI.visualClassFilter = inventoryUI.visualClassFilter or "All"
           inventoryUI.visualFilterACMode = inventoryUI.visualFilterACMode or "All"
           inventoryUI.visualFilterACValue = tonumber(inventoryUI.visualFilterACValue) or 0
           inventoryUI.visualFilterHPMode = inventoryUI.visualFilterHPMode or "All"
@@ -356,6 +358,51 @@ function M.renderContent(inventoryUI, env)
               bst = "Leather", beastlord = "Leather",
             }
             return map[key] or "Unknown"
+          end
+
+          local function normalizeToShortClass(class)
+            if not class or class == "" then return nil end
+            local key = tostring(class):gsub("%s+", ""):lower()
+            local map = {
+              war = "WAR", warrior = "WAR",
+              clr = "CLR", cleric = "CLR",
+              pal = "PAL", paladin = "PAL",
+              rng = "RNG", ranger = "RNG",
+              shd = "SHD", shadowknight = "SHD",
+              dru = "DRU", druid = "DRU",
+              mnk = "MNK", monk = "MNK",
+              brd = "BRD", bard = "BRD",
+              rog = "ROG", rogue = "ROG",
+              shm = "SHM", shaman = "SHM",
+              nec = "NEC", necromancer = "NEC",
+              wiz = "WIZ", wizard = "WIZ",
+              mag = "MAG", magician = "MAG",
+              enc = "ENC", enchanter = "ENC",
+              bst = "BST", beastlord = "BST",
+              ber = "BER", berserker = "BER",
+            }
+            return map[key]
+          end
+
+          local function classForPeer(name)
+            if not name or name == "" then return nil end
+            local peers = env.inventory_actor and env.inventory_actor.peer_inventories or {}
+            local mq = env.mq
+            local extractCharacterName = env.extractCharacterName
+            local myName = extractCharacterName(mq.TLO.Me.CleanName())
+            for _, inv in pairs(peers) do
+              if inv and inv.name == name and inv.class and tostring(inv.class) ~= "" then
+                return inv.class
+              end
+            end
+            local spawn = mq.TLO.Spawn("pc = " .. name)
+            if spawn() and spawn.Class() then
+              return tostring(spawn.Class())
+            end
+            if name == myName and mq.TLO.Me.Class() then
+              return tostring(mq.TLO.Me.Class())
+            end
+            return nil
           end
 
           local slotLayout = getEquippedSlotLayout()
@@ -497,6 +544,18 @@ function M.renderContent(inventoryUI, env)
             end
             ImGui.EndCombo()
           end
+          ImGui.SameLine()
+          ImGui.Text("Class:")
+          ImGui.SameLine()
+          ImGui.SetNextItemWidth(90)
+          if ImGui.BeginCombo("##VisualClassFilter", inventoryUI.visualClassFilter) then
+            for _, className in ipairs(classNames) do
+              if ImGui.Selectable(className, inventoryUI.visualClassFilter == className) then
+                inventoryUI.visualClassFilter = className
+              end
+            end
+            ImGui.EndCombo()
+          end
 
           if inventoryUI.showVisualFilters then
             local function renderStatFilterControls(label, modeKey, valueKey)
@@ -526,6 +585,7 @@ function M.renderContent(inventoryUI, env)
             ImGui.SameLine(0, 8)
             if ImGui.Button("Reset Filters##VisualStatFilters") then
               inventoryUI.armorTypeFilter = "All"
+              inventoryUI.visualClassFilter = "All"
               inventoryUI.visualFilterACMode = "All"
               inventoryUI.visualFilterACValue = 0
               inventoryUI.visualFilterHPMode = "All"
@@ -563,35 +623,23 @@ function M.renderContent(inventoryUI, env)
               -- Apply class-based Armor Type filter to the character list
               if inventoryUI.armorTypeFilter and inventoryUI.armorTypeFilter ~= "All" then
                 local filtered = {}
-                local peers = env.inventory_actor and env.inventory_actor.peer_inventories or {}
-                local mq = env.mq
-                local extractCharacterName = env.extractCharacterName
-                local myName = extractCharacterName(mq.TLO.Me.CleanName())
-
-                local function classForPeer(name)
-                  if not name or name == "" then return nil end
-                  -- 1) Prefer inventory cache
-                  for _, inv in pairs(peers) do
-                    if inv and inv.name == name and inv.class and tostring(inv.class) ~= "" then
-                      return inv.class
-                    end
-                  end
-                  -- 2) Fallback to live spawn in zone
-                  local spawn = mq.TLO.Spawn("pc = " .. name)
-                  if spawn() and spawn.Class() then
-                    return tostring(spawn.Class())
-                  end
-                  -- 3) If it's me, use Me.Class
-                  if name == myName and mq.TLO.Me.Class() then
-                    return tostring(mq.TLO.Me.Class())
-                  end
-                  return nil
-                end
-
                 for _, entry in ipairs(processedResults) do
                   local cls = classForPeer(entry.peerName)
                   local armor = getArmorTypeByClass(cls or "")
                   if armor == inventoryUI.armorTypeFilter then
+                    table.insert(filtered, entry)
+                  end
+                end
+                processedResults = filtered
+              end
+
+              -- Apply Class filter
+              if inventoryUI.visualClassFilter and inventoryUI.visualClassFilter ~= "All" then
+                local filtered = {}
+                for _, entry in ipairs(processedResults) do
+                  local cls = classForPeer(entry.peerName)
+                  local shortClass = normalizeToShortClass(cls or "")
+                  if shortClass == inventoryUI.visualClassFilter then
                     table.insert(filtered, entry)
                   end
                 end
